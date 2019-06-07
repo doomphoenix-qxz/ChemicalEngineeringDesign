@@ -1,0 +1,13 @@
+name = "ChemicalEngineeringDesign"
+uuid = "82d9a094-896d-11e9-3637-a1033c80b0ba"
+authors = ["doomphoenix-qxz <richardlfitzhugh@gmail.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
