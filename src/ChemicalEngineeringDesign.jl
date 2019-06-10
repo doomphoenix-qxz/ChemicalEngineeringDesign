@@ -1,5 +1,10 @@
 module ChemicalEngineeringDesign
 
-greet() = print("Hello World!")
+using NLsolve
+
+include("pipes.jl")
+include("substances.jl")
+include("hx_core.jl")
+include("streams.jl")
 
 end # module
