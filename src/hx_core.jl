@@ -37,7 +37,7 @@ function HeatExchanger(shell::Pipe, tube::Pipe, ntubes::Integer,
     farea = shell.flowarea - ntubes * tube.totalarea
     PW = pi*shell.diameter + ntubes*pi*tube.outer_diameter
     Dh = 4*farea/PW
-    newshell = pipes.pipe(shell.length, Dh, Dh/2, farea, shell.thickness,
+    newshell = Pipe(shell.length, Dh, Dh/2, farea, shell.thickness,
         shell.outer_diameter, shell.outer_radius, shell.totalarea,
         shell.roughness, shell.elevation_change, shell.therm_cond)
     return HeatExchanger(shell, newshell, tube, ntubes, bsp, bcut, type_)
@@ -97,15 +97,18 @@ through the heat transfer surface, with Re between 3600 and 90500, and Pe
 between 100 and 10000. Proposed by Skupinski et al. in Int. Journal of Heat and
 Mass Transfer, Vol 8 p. 937, 1965.
 """
-function lm_correlation(Re, Pr)
-    return 4.82+0.0185*(Re*Pr)^0.827
+function lm_correlation(astream, Twall)
+    return 4.82+0.0185*(astream.tstream.Re*astream.tstream.Pr)^0.827
 end
 
 """
 Gneilinski heat transfer correlation.
 A workhorse for turbulent convective heat transfer through a tube.
 """
-function gneilinski(Re, Pr, f)
+function gneilinski(astream, Twall)
+    f = astream.f
+    Re  = astream.Re
+    Pr = astream.Pr
     top = (f/8)*(Re-1000)*Pr
     bottom = 1+12.7*√(f/8)*(Pr^(2/3)-1)
     return top/bottom
@@ -116,8 +119,8 @@ Correlation for molten salt flowing through the shell side
 of a segmental-baffled shell-and-tube HX. From 
 B.-C. Du et al. / International Journal of Heat and Mass Transfer 113 (2017) 456–465
 """
-function moltensalt_shell(Re, Pr)
-    return 0.0676*  Re^ 0.70413*  Pr^ 0.4
+function moltensalt_shell(astream, Twall)
+    return 0.0676*  astream.Re^ 0.70413*  astream.Pr^ 0.4
 end 
 
 function get_correlation(r::FlowStream, descriptor="shell")
@@ -142,8 +145,15 @@ later (called hx_performance_solver)
 function hx_performance_calcs(hx_::HeatExchanger,
                               shellstream::Stream,
                               tubestream::Stream,
-                              scorr, tcorr)
-    #print(hx_)
+                              scorr::Function, tcorr::Function)
+    # scorr and tcorr are the functions that correspond to the shell-side and
+    # the tube-side of the heat exchanger, respectively. The user needs to
+    # choose them correctly. Automatic assignment of heat transfer correlations
+    # is something I would like someday, but will be really hard to do.
+    # They must accept the FlowStream object and the wall temp as arguments,
+    # and output the Nusselt number.
+    # The wall temp because properties at the wall are needed for some 
+    # correlations.
     if shellstream.T > tubestream.T
         hot = shellstream
         cold = tubestream
@@ -164,12 +174,13 @@ function hx_performance_calcs(hx_::HeatExchanger,
     end
 
     Cr = Cmin/Cmax
+    Twall = (hot.T+cold.T)/2
     k = hx_.tube.therm_cond((hot.T+cold.T)/2)
     sflow = FlowStream(hx_.shell, shellstream)
     tflow = FlowStream(hx_.tube, tubestream)
-    Nu_s = scorr(sflow.Re, sflow.Pr)
+    Nu_s = scorr(sflow, Twall)
     h_o = Nu_s*shellstream.k/hx_.shell.diameter
-    Nu_t = tcorr(tflow.Re, tflow.Pr, tflow.f)
+    Nu_t = tcorr(tflow, Twall)
     h_i = Nu_t*tubestream.k/hx_.tube.diameter
 
     Ai = π*hx_.tube.diameter*hx_.tube.length*hx_.n_tubes
@@ -203,9 +214,16 @@ hx_performance_calcs and uses them to find a solution
 function hx_performance_solver(hx_::HeatExchanger,
                                shellstream::Stream,
                                tubestream::Stream,
-                               scorr, tcorr)
-
-    out_init = hx_performance_calcs(hx_, shellstream, tubestream)
+                               scorr::Function, tcorr::Function)
+    # scorr and tcorr are the functions that correspond to the shell-side and
+    # the tube-side of the heat exchanger, respectively. The user needs to
+    # choose them correctly. Automatic assignment of heat transfer correlations
+    # is something I would like someday, but will be really hard to do.
+    # They must accept the FlowStream object and the wall temp as arguments,
+    # and output the Nusselt number.
+    # The wall temp because properties at the wall are needed for some 
+    # correlations.
+    out_init = hx_performance_calcs(hx_, shellstream, tubestream, scorr, tcorr)
     hout_g = out_init[1]
     cout_g = out_init[2]
     x0 = [hout_g.T, cout_g.T, hout_g.p, cout_g.p]
@@ -236,6 +254,7 @@ function hx_performance_solver(hx_::HeatExchanger,
         Tc_avg = (cold.T+Tco)/2
         Ph_avg = (hot.p+Pho)/2
         Pc_avg = (cold.p+Pco)/2
+        Twall = (Th_avg+Tc_avg)/2
 
         hot_avg = Stream(hot.subst_, hot.ṁ, Ph_avg, Th_avg)
         cold_avg = Stream(cold.subst_, cold.ṁ, Pc_avg, Tc_avg)
@@ -256,21 +275,15 @@ function hx_performance_solver(hx_::HeatExchanger,
 
         if shellhot_flag
             sflow = FlowStream(hx_.shell, hot_avg)
-            #print(sflow)
             tflow = FlowStream(hx_.tube, cold_avg)
-            #print(tflow)
         else
             sflow = FlowStream(hx_.shell, cold_avg)
-            #print(sflow)
             tflow = FlowStream(hx_.tube, hot_avg)
-            #print(tflow)
         end
-        Nu_s = scorr(sflow.Re, sflow.Pr)
+        Nu_s = scorr(sflow, Twall)
         h_o = Nu_s*shellstream.k/hx_.shell.diameter
-        #print(Nu_s)
-        Nu_t = tcorr(tflow.Re, tflow.Pr, tflow.f)
+        Nu_t = tcorr(tflow, Twall)
         h_i = Nu_t*tubestream.k/hx_.tube.diameter
-        #print(Nu_t)
 
         Ai = π*hx_.tube.diameter*hx_.tube.length*hx_.n_tubes
         Ao = π*hx_.tube.outer_diameter*hx_.tube.length*hx_.n_tubes

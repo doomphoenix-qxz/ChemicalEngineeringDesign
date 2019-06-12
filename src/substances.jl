@@ -1,7 +1,7 @@
 
 # using Calculus
 # define types first
-struct substance
+struct Substance
     name::String
     density::Function
     enthalpy::Function
@@ -16,16 +16,16 @@ struct substance
     Pr::Function
 end
 
-function substance(name, x::Vector{Function})
+function Substance(name, x::Vector{Function})
     dens, enth, Cp, visc, thermCond, stens = x
     function alt_heat_capacity(p, T)
-        return derivative(T_ -> enth(p, T_), T)
+        return ForwardDiff.derivative(T_ -> enth(p, T_), T)
     end
     function visc_kin(p, T)
         return visc(p, T)/dens(p, T)
     end
     function exp_coeff(p, T)
-        dRdT = derivative(T_ -> dens(p, T_), T)
+        dRdT = ForwardDiff.derivative(T_ -> dens(p, T_), T)
         return (-1/dens(p, T))*dRdT
     end
     function thermDiff(p, T)
@@ -44,7 +44,7 @@ function substance(name, x::Vector{Function})
         end
         return Cp_ * visc(p, T) / thermCond(p, T)
     end
-    return substance(name, dens, enth, Cp, visc, thermCond, alt_heat_capacity, visc_kin, exp_coeff, thermDiff, stens, Pr)
+    return Substance(name, dens, enth, Cp, visc, thermCond, alt_heat_capacity, visc_kin, exp_coeff, thermDiff, stens, Pr)
 end
 
 function na_enthalpy(p, T)
@@ -66,14 +66,14 @@ function na_Cp(p, T)
     """This function takes the temperature of liquid sodium and returns the heat
     capacity at constant pressure in kJ/kg*K. The Argonne report gives a very
     complicated correlation for Cp but notes that it's almost equal to the
-    derivative of enthalpy with temperature up to about 1800 K. So I used the derivative here."""
+    ForwardDiff.derivative of enthalpy with temperature up to about 1800 K. So I used the ForwardDiff.derivative here."""
     a = -365.77
     b = 1.6582
     c = 4.2395E-4
     d = 1.4847E-7
     e = 2992.6
     return (b - 2*c * T + 3 * d * T ^ 2 - e / (T^2)) * 1000
-    #return derivative(enthalpy, T, dx = 1E-6)
+    #return ForwardDiff.derivative(enthalpy, T, dx = 1E-6)
 end
 
 function na_density(p, T)

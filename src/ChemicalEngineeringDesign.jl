@@ -1,6 +1,7 @@
 module ChemicalEngineeringDesign
 
 using NLsolve
+using ForwardDiff
 
 include("pipes.jl")
 include("substances.jl")
