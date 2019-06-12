@@ -22,17 +22,17 @@
 
 @enum hx_type conc_parallel=0 conc_counter=1 st_oneshell=2 st_twoshell=3 Cr_0=4
 
-struct heat_exchanger
-    oldshell::pipes.pipe
-    shell::pipes.pipe
-    tube::pipes.pipe
+struct HeatExchanger
+    oldshell::Pipe
+    shell::Pipe
+    tube::Pipe
     n_tubes::Int
     bafflespace::AbstractFloat
     bafflecut::AbstractFloat
     type_::hx_type
 end
 
-function heat_exchanger(shell::pipes.pipe, tube::pipes.pipe, ntubes::Integer,
+function HeatExchanger(shell::Pipe, tube::Pipe, ntubes::Integer,
                         bsp, bcut, type_::hx_type)
     farea = shell.flowarea - ntubes * tube.totalarea
     PW = pi*shell.diameter + ntubes*pi*tube.outer_diameter
@@ -40,7 +40,7 @@ function heat_exchanger(shell::pipes.pipe, tube::pipes.pipe, ntubes::Integer,
     newshell = pipes.pipe(shell.length, Dh, Dh/2, farea, shell.thickness,
         shell.outer_diameter, shell.outer_radius, shell.totalarea,
         shell.roughness, shell.elevation_change, shell.therm_cond)
-    return heat_exchanger(shell, newshell, tube, ntubes, bsp, bcut, type_)
+    return HeatExchanger(shell, newshell, tube, ntubes, bsp, bcut, type_)
 end
 
 """
@@ -111,11 +111,18 @@ function gneilinski(Re, Pr, f)
     return top/bottom
 end
 
+"""
+Correlation for molten salt flowing through the shell side
+of a segmental-baffled shell-and-tube HX. From 
+B.-C. Du et al. / International Journal of Heat and Mass Transfer 113 (2017) 456–465
+"""
+function moltensalt_shell(Re, Pr)
+    return 0.0676*  Re^ 0.70413*  Pr^ 0.4
+end 
 
+function get_correlation(r::FlowStream, descriptor="shell")
 
-function get_correlation(fstr::fs.flowstream, descriptor="shell")
-
-  sname = fstr.tstream.subst_.name
+  sname = r.tstream.subst_.name
   key_ = (sname, descriptor)
   if haskey(correlations, key_)
     return correlations[key_]
@@ -132,9 +139,10 @@ change down the length of the exchanger. The outlet conditions obtained from
 this analysis are fed as initial guesses to the solver function that appears
 later (called hx_performance_solver)
 """
-function hx_performance_calcs(hx_::hx.heat_exchanger,
-                              shellstream::streams.stream,
-                              tubestream::streams.stream)
+function hx_performance_calcs(hx_::HeatExchanger,
+                              shellstream::Stream,
+                              tubestream::Stream,
+                              scorr, tcorr)
     #print(hx_)
     if shellstream.T > tubestream.T
         hot = shellstream
@@ -157,16 +165,12 @@ function hx_performance_calcs(hx_::hx.heat_exchanger,
 
     Cr = Cmin/Cmax
     k = hx_.tube.therm_cond((hot.T+cold.T)/2)
-    sflow = fs.flowstream(hx_.shell, shellstream)
-    tflow = fs.flowstream(hx_.tube, tubestream)
-    scorrelation = get_correlation(sflow, "shell")
-    tcorrelation = get_correlation(tflow, "tube")
-    Nu_s = scorrelation(sflow.Re, sflow.Pr)
+    sflow = FlowStream(hx_.shell, shellstream)
+    tflow = FlowStream(hx_.tube, tubestream)
+    Nu_s = scorr(sflow.Re, sflow.Pr)
     h_o = Nu_s*shellstream.k/hx_.shell.diameter
-    print(Nu_s)
-    Nu_t = tcorrelation(tflow.Re, tflow.Pr, tflow.f)
+    Nu_t = tcorr(tflow.Re, tflow.Pr, tflow.f)
     h_i = Nu_t*tubestream.k/hx_.tube.diameter
-    print(Nu_t)
 
     Ai = π*hx_.tube.diameter*hx_.tube.length*hx_.n_tubes
     Ao = π*hx_.tube.outer_diameter*hx_.tube.length*hx_.n_tubes
@@ -182,11 +186,11 @@ function hx_performance_calcs(hx_::hx.heat_exchanger,
     print(Th_out)
 
     if hot==shellstream
-        hout = streams.stream(hot.subst_, hot.ṁ, hot.p - sflow.ΔP, Th_out)
-        cout = streams.stream(cold.subst_,cold.ṁ,cold.p- tflow.ΔP, Tc_out)
+        hout = Stream(hot.subst_, hot.ṁ, hot.p - sflow.ΔP, Th_out)
+        cout = Stream(cold.subst_,cold.ṁ,cold.p- tflow.ΔP, Tc_out)
     else
-        hout = streams.stream(hot.subst_, hot.ṁ, hot.p - tflow.ΔP, Th_out)
-        cout = streams.stream(cold.subst_,cold.ṁ,cold.p- sflow.ΔP, Tc_out)
+        hout = Stream(hot.subst_, hot.ṁ, hot.p - tflow.ΔP, Th_out)
+        cout = Stream(cold.subst_,cold.ṁ,cold.p- sflow.ΔP, Tc_out)
     end
     return [hout, cout]
 end
@@ -196,9 +200,10 @@ Function hx_performance_solver
 This function takes the preliminary guesses provided by the previous function
 hx_performance_calcs and uses them to find a solution
 """
-function hx_performance_solver(hx_::hx.heat_exchanger,
-                               shellstream::streams.stream,
-                               tubestream::streams.stream)
+function hx_performance_solver(hx_::HeatExchanger,
+                               shellstream::Stream,
+                               tubestream::Stream,
+                               scorr, tcorr)
 
     out_init = hx_performance_calcs(hx_, shellstream, tubestream)
     hout_g = out_init[1]
@@ -232,8 +237,8 @@ function hx_performance_solver(hx_::hx.heat_exchanger,
         Ph_avg = (hot.p+Pho)/2
         Pc_avg = (cold.p+Pco)/2
 
-        hot_avg = streams.stream(hot.subst_, hot.ṁ, Ph_avg, Th_avg)
-        cold_avg = streams.stream(cold.subst_, cold.ṁ, Pc_avg, Tc_avg)
+        hot_avg = Stream(hot.subst_, hot.ṁ, Ph_avg, Th_avg)
+        cold_avg = Stream(cold.subst_, cold.ṁ, Pc_avg, Tc_avg)
 
         Chot = hot.ṁ * hot_avg.Cp
         Ccold = cold.ṁ * cold_avg.Cp
@@ -250,22 +255,20 @@ function hx_performance_solver(hx_::hx.heat_exchanger,
         k = hx_.tube.therm_cond((hot.T+cold.T)/2)
 
         if shellhot_flag
-            sflow = fs.flowstream(hx_.shell, hot_avg)
+            sflow = FlowStream(hx_.shell, hot_avg)
             #print(sflow)
-            tflow = fs.flowstream(hx_.tube, cold_avg)
+            tflow = FlowStream(hx_.tube, cold_avg)
             #print(tflow)
         else
-            sflow = fs.flowstream(hx_.shell, cold_avg)
+            sflow = FlowStream(hx_.shell, cold_avg)
             #print(sflow)
-            tflow = fs.flowstream(hx_.tube, hot_avg)
+            tflow = FlowStream(hx_.tube, hot_avg)
             #print(tflow)
         end
-        scorrelation = get_correlation(sflow, "shell")
-        tcorrelation = get_correlation(tflow, "tube")
-        Nu_s = scorrelation(sflow.Re, sflow.Pr)
+        Nu_s = scorr(sflow.Re, sflow.Pr)
         h_o = Nu_s*shellstream.k/hx_.shell.diameter
         #print(Nu_s)
-        Nu_t = tcorrelation(tflow.Re, tflow.Pr, tflow.f)
+        Nu_t = tcorr(tflow.Re, tflow.Pr, tflow.f)
         h_i = Nu_t*tubestream.k/hx_.tube.diameter
         #print(Nu_t)
 
@@ -281,11 +284,11 @@ function hx_performance_solver(hx_::hx.heat_exchanger,
         q = ϵ_*qmax
 
         if shellhot_flag
-            hout = streams.stream(hot.subst_, hot.ṁ, hot.p - sflow.ΔP, Tho)
-            cout = streams.stream(cold.subst_,cold.ṁ,cold.p- tflow.ΔP, Tco)
+            hout = Stream(hot.subst_, hot.ṁ, hot.p - sflow.ΔP, Tho)
+            cout = Stream(cold.subst_,cold.ṁ,cold.p- tflow.ΔP, Tco)
         else
-            hout = streams.stream(hot.subst_, hot.ṁ, hot.p - tflow.ΔP, Tho)
-            cout = streams.stream(cold.subst_,cold.ṁ,cold.p- sflow.ΔP, Tco)
+            hout = Stream(hot.subst_, hot.ṁ, hot.p - tflow.ΔP, Tho)
+            cout = Stream(cold.subst_,cold.ṁ,cold.p- sflow.ΔP, Tco)
         end
 
         # Calculate errors
@@ -305,10 +308,10 @@ end
 #function test_hx_init()
 #    tube = pipes.pipe(("40", 1.0), "Stainless Steel", 0.8, 0.0)
 #    shell = pipes.pipe(("40", 10.0), "Stainless Steel", 0.8, 0.0)
-#    testit = hx.heat_exchanger(shell, tube, 15, 0, 0, hx.st_oneshell)
-#    hot_ = streams.stream("Sodium", 2.0, 1.0e5, 900.)
+#    testit = hx.HeatExchanger(shell, tube, 15, 0, 0, hx.st_oneshell)
+#    hot_ = Stream("Sodium", 2.0, 1.0e5, 900.)
 #    #print(hot_)
-#    cold_ = streams.stream("CO₂", 1.0, 7.5e6, 400.)
+#    cold_ = Stream("CO₂", 1.0, 7.5e6, 400.)
 #    #print(cold_)
 #    print(hx_performance_solver(testit, hot_, cold_))
 #end

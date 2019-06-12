@@ -12,11 +12,12 @@ struct substance
     visc_kin::Function
     exp_coeff::Function
     therm_diff::Function
+    stens::Function
     Pr::Function
 end
 
 function substance(name, x::Vector{Function})
-    dens, enth, Cp, visc, thermCond = x
+    dens, enth, Cp, visc, thermCond, stens = x
     function alt_heat_capacity(p, T)
         return derivative(T_ -> enth(p, T_), T)
     end
@@ -43,7 +44,7 @@ function substance(name, x::Vector{Function})
         end
         return Cp_ * visc(p, T) / thermCond(p, T)
     end
-    return substance(name, dens, enth, Cp, visc, thermCond, alt_heat_capacity, visc_kin, exp_coeff, thermDiff, Pr)
+    return substance(name, dens, enth, Cp, visc, thermCond, alt_heat_capacity, visc_kin, exp_coeff, thermDiff, stens, Pr)
 end
 
 function na_enthalpy(p, T)
@@ -120,10 +121,3 @@ function na_dynamic_viscosity(p, T)
     return exp(a + b * log(T) + c / T)
 end
 
-# sodium_subst = substance("sodium", [na_density, na_enthalpy, na_Cp, na_dynamic_viscosity, na_thermal_conductivity])
-
-
-
-
-
-#__main__()
