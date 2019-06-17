@@ -58,7 +58,7 @@ on fluid mechanics.
 function FlowStream(tpipe::Pipe, tStream::Stream)
     d = tpipe.diameter
     Re = tStream.ṁ * d / (tStream.μ * tpipe.flowarea)
-    f = getf(Re, tpipe)
+    f = getf2(Re, tpipe)
     vel = tStream.V̇ / tpipe.flowarea
     Δh = (f*tpipe.length / d) * vel^2 / (2*9.81) + tpipe.elevation_change
     ΔP = Δh * (9.81 * tStream.ρ)

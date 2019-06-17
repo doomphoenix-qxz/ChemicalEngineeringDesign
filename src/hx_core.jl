@@ -123,6 +123,14 @@ function moltensalt_shell(astream, Twall)
     return 0.0676*  astream.Re^ 0.70413*  astream.Pr^ 0.4
 end 
 
+
+"""
+Laminar, fully developed Nusselt correlation for a wall @ const heat flux
+"""
+function laminar_tube(astream, Twall)
+    return 4.36
+end 
+
 function get_correlation(r::FlowStream, descriptor="shell")
 
   sname = r.tstream.subst_.name
@@ -177,7 +185,8 @@ function hx_performance_calcs(hx_::HeatExchanger,
     Twall = (hot.T+cold.T)/2
     k = hx_.tube.therm_cond((hot.T+cold.T)/2)
     sflow = FlowStream(hx_.shell, shellstream)
-    tflow = FlowStream(hx_.tube, tubestream)
+    tstr_onetube = Stream(tubestream.subst_, tubestream.ṁ/hx_.n_tubes, tubestream.p, tubestream.T)
+    tflow = FlowStream(hx_.tube, tstr_onetube)
     Nu_s = scorr(sflow, Twall)
     h_o = Nu_s*shellstream.k/hx_.shell.diameter
     Nu_t = tcorr(tflow, Twall)
@@ -189,12 +198,12 @@ function hx_performance_calcs(hx_::HeatExchanger,
     R_cond = log(hx_.tube.outer_diameter / hx_.tube.diameter) / (2π*hx_.tube.length*k*hx_.n_tubes)
     UA = 1/(1/(h_o*Ao) + 1/(h_i*Ai) + R_cond)
     NTU = UA/Cmin
-    ϵ_ = hx.ϵ(NTU, Cr, hx_.type_)
+    ϵ_ = ϵ(NTU, Cr, hx_.type_)
     qmax = Cmin*(hot.T - cold.T)
     q = ϵ_*qmax
     Th_out = hot.T - q/Chot
     Tc_out = cold.T+ q/Ccold
-    print(Th_out)
+    println("Heat transferred: ",q," W")
 
     if hot==shellstream
         hout = Stream(hot.subst_, hot.ṁ, hot.p - sflow.ΔP, Th_out)
@@ -291,7 +300,7 @@ function hx_performance_solver(hx_::HeatExchanger,
         R_cond = log(hx_.tube.outer_diameter / hx_.tube.diameter) / (2π*hx_.tube.length*k*hx_.n_tubes)
         UA = 1/(1/(h_o*Ao) + 1/(h_i*Ai) + R_cond)
         NTU = UA/Cmin
-        ϵ_ = hx.ϵ(NTU, Cr, hx_.type_)
+        ϵ_ = ϵ(NTU, Cr, hx_.type_)
         qmax = Cmin*(hot.T - cold.T)
         # The WHOLE POINT of the calculations so far was to get q
         q = ϵ_*qmax

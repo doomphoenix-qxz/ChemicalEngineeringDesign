@@ -111,6 +111,7 @@ function colebrook(Re, p::Pipe, f_g)
 end
 
 function getf(Re, p::Pipe)
+    print("Sanity check: Re = ",Re)
     function dummysolve!(f_guess, fvec)
         fvec[1] = colebrook(Re, p, f_guess[1])
     end
@@ -118,6 +119,19 @@ function getf(Re, p::Pipe)
 
 end
 
+laminarf(Re, p::Pipe) = 64.0/Re 
+
+function swameejain(Re, p::Pipe)
+    return 0.25/(log10(p.roughness/(3.7*p.diameter)+ 5.74/(Re^  0.9)))^2
+end 
+
+function getf2(Re, p::Pipe)
+    if Re > 2000
+        return swameejain(Re, p)
+    else 
+        return laminarf(Re, p)
+    end 
+end
 
 function stainless_steel_thermal_conductivity(T)
     # Source: http://www.mace.manchester.ac.uk/project/research/structures/strucfire/MaterialInFire/Steel/StainlessSteel/thermalProperties.htm
